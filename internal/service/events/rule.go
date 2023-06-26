@@ -67,7 +67,7 @@ func ResourceRule() *schema.Resource {
 				ValidateFunc: validateEventPatternValue(),
 				AtLeastOneOf: []string{"schedule_expression", "event_pattern"},
 				StateFunc: func(v interface{}) string {
-					json, _ := jsonMarshal(v.(string))
+					json, _ := RuleEventPatternJSONDecoder(v.(string))
 					return json
 				},
 			},
@@ -109,30 +109,6 @@ func ResourceRule() *schema.Resource {
 
 		CustomizeDiff: verify.SetTagsDiff,
 	}
-}
-
-func jsonMarshal(jsonString interface{}) (string, error) {
-	var j interface{}
-
-	if jsonString == nil || jsonString.(string) == "" {
-		return "", nil
-	}
-
-	s := jsonString.(string)
-
-	err := json.Unmarshal([]byte(s), &j)
-	if err != nil {
-		return s, err
-	}
-
-	b, _ := json.Marshal(j)
-
-	if bytes.Contains(b, []byte("\\u003c")) || bytes.Contains(b, []byte("\\u003e")) || bytes.Contains(b, []byte("\\u0026")) {
-		b = bytes.Replace(b, []byte("\\u003c"), []byte("<"), -1)
-		b = bytes.Replace(b, []byte("\\u003e"), []byte(">"), -1)
-		b = bytes.Replace(b, []byte("\\u0026"), []byte("&"), -1)
-	}
-	return string(b[:]), nil
 }
 
 func resourceRuleCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
@@ -211,7 +187,7 @@ func resourceRuleRead(ctx context.Context, d *schema.ResourceData, meta interfac
 	d.Set("description", output.Description)
 	d.Set("event_bus_name", eventBusName) // Use event bus name from resource ID as API response may collapse any ARN.
 	if output.EventPattern != nil {
-		pattern, err := structure.NormalizeJsonString(aws.StringValue(output.EventPattern))
+		pattern, err := RuleEventPatternJSONDecoder(aws.StringValue(output.EventPattern))
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "event pattern contains an invalid JSON: %s", err)
 		}
@@ -319,6 +295,33 @@ func FindRuleByTwoPartKey(ctx context.Context, conn *eventbridge.EventBridge, ev
 	}
 
 	return output, nil
+}
+
+func RuleEventPatternJSONDecoder(jsonString interface{}) (string, error) {
+	var j interface{}
+
+	if jsonString == nil || jsonString.(string) == "" {
+		return "", nil
+	}
+
+	s := jsonString.(string)
+
+	err := json.Unmarshal([]byte(s), &j)
+	if err != nil {
+		return s, err
+	}
+
+	b, err := json.Marshal(j)
+	if err != nil {
+		return "", err
+	}
+
+	if bytes.Contains(b, []byte("\\u003c")) || bytes.Contains(b, []byte("\\u003e")) || bytes.Contains(b, []byte("\\u0026")) {
+		b = bytes.Replace(b, []byte("\\u003c"), []byte("<"), -1)
+		b = bytes.Replace(b, []byte("\\u003e"), []byte(">"), -1)
+		b = bytes.Replace(b, []byte("\\u0026"), []byte("&"), -1)
+	}
+	return string(b[:]), nil
 }
 
 func expandPutRuleInput(d *schema.ResourceData, name string) *eventbridge.PutRuleInput {
